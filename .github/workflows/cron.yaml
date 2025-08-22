@@ -11,6 +11,7 @@ permissions:
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    enviroment: prueba-Actions
     concurrency:
       group: hourly-scrape
       cancel-in-progress: true
