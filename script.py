@@ -60,12 +60,17 @@ else:
         date_format = "%a %b %d %H:%M:%S %z %Y"
         df["createdAt"] = pd.to_datetime(df["createdAt"], format=date_format, errors="coerce")
 
+
+# Eliminamos duplicados
+df.drop_duplicates(subset = 'url')
+
 # Guardamos CSV con timestamp UTC
 Path("output").mkdir(exist_ok=True)
 ts = now_utc.strftime("%Y%m%dT%H%M%SZ")
 csv_path = Path("output") / f"twitter_scrape_{ts}.csv"
 df.to_csv(csv_path, index=False)
 print(f"CSV guardado en: {csv_path}")
+
 
 
 
