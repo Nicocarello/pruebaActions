@@ -6,7 +6,7 @@ from apify_client import ApifyClient
 
 # === Config desde entorno (poner en GitHub Secrets) ===
 APIFY_TOKEN = os.getenv("APIFY_TOKEN")  # <-- definir en GitHub Secrets
-ACTOR_ID = os.getenv("APIFY_ACTOR_ID", "apidojo/twitter-scraper-lite")
+ACTOR_ID = os.getenv("ACTOR_ID", "apidojo/twitter-scraper-lite")
 SEARCH_TERMS = os.getenv("SEARCH_TERMS", "mercado libre")  # coma-separado -> "term1,term2"
 
 if not APIFY_TOKEN:
@@ -67,3 +67,4 @@ ts = now_utc.strftime("%Y%m%dT%H%M%SZ")
 csv_path = Path("output") / f"twitter_scrape_{ts}.csv"
 df.to_csv(csv_path, index=False)
 print(f"CSV guardado en: {csv_path}")
+
