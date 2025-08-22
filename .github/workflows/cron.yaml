@@ -2,29 +2,50 @@ name: Run Twitter scraper hourly
 
 on:
   schedule:
-    - cron: "0 * * * *"
-  workflow_dispatch:
+    - cron: "0 * * * *"   # cada hora (UTC)
+  workflow_dispatch:       # permite ejecutarlo manualmente
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    environment: prueba-Actions   # 👈 usa los Environment secrets de ese environment
+    environment: prueba-Actions        # ← el Environment donde guardaste APIFY_TOKEN
+    concurrency:
+      group: hourly-scrape
+      cancel-in-progress: true         # evita solapamientos si una corrida tarda >1h
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - run: |
+
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      - name: Install dependencies
+        run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
+
       - name: Run scraper
         env:
-          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}   # viene del Environment
-          SEARCH_TERMS: ${{ vars.SEARCH_TERMS }}
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}       # del Environment o Repo secrets
+          APIFY_ACTOR_ID: ${{ secrets.APIFY_ACTOR_ID }} # opcional
+          SEARCH_TERMS: ${{ vars.SEARCH_TERMS }}        # opcional (Repository variable)
         run: python script.py
-      - uses: actions/upload-artifact@v4
+
+      - name: Upload CSV artifact
+        uses: actions/upload-artifact@v4
         with:
           name: twitter-scrape-output
           path: output/*.csv
           if-no-files-found: warn
+          retention-days: 30
