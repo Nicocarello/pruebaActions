@@ -2,8 +2,8 @@ name: Run Twitter scraper hourly
 
 on:
   schedule:
-    - cron: "0 * * * *"   # cada hora (UTC)
-  workflow_dispatch:       # permite ejecutarlo manualmente
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
 
 # Necesario para poder pushear al repo con GITHUB_TOKEN
 permissions:
