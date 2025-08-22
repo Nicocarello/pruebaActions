@@ -18,8 +18,8 @@ jobs:
 
     # ⚙️ Config pública/no sensible directamente en YAML
     env:
-      APIFY_ACTOR_ID: "apify/twitter-scraper"     # o el que uses
-      SEARCH_TERMS: "mercadolibre, mercado libre" # ej. separados por coma
+      APIFY_ACTOR_ID: ${{ secrets.APIFY_ACTOR_ID }}
+      SEARCH_TERMS: ${{ vars.SEARCH_TERMS }}
 
     steps:
       - name: Checkout repo
