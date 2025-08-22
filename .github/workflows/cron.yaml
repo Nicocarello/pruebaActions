@@ -18,7 +18,7 @@ jobs:
 
     # ⚙️ Config pública/no sensible directamente en YAML
     env:
-      APIFY_ACTOR_ID: ${{ secrets.APIFY_ACTOR_ID }}
+      APIFY_ACTOR_ID: ${{ secrets.ACTOR_ID }}
       SEARCH_TERMS: ${{ vars.SEARCH_TERMS }}
 
     steps:
