@@ -2,7 +2,7 @@ name: Run Twitter scraper hourly
 
 on:
   schedule:
-    - cron: "*/5 * * * *"   # cada hora (UTC)
+    - cron: "*/45 * * * *"   # cada hora (UTC)
   workflow_dispatch:
 
 permissions:
