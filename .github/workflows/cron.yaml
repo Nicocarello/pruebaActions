@@ -2,39 +2,39 @@ name: Run Twitter scraper hourly
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    - cron: "*/5 * * * *"   # cada hora (UTC)
   workflow_dispatch:
 
-# Necesario para poder pushear al repo con GITHUB_TOKEN
 permissions:
   contents: write
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    environment: prueba-Actions        # ← tu Environment con APIFY_TOKEN
     concurrency:
       group: hourly-scrape
-      cancel-in-progress: true         # evita solapamientos si tarda >1h
+      cancel-in-progress: true
+
+    # ⚙️ Config pública/no sensible directamente en YAML
+    env:
+      APIFY_ACTOR_ID: "apify/twitter-scraper"     # o el que uses
+      SEARCH_TERMS: "mercadolibre, uber, cordoba" # ej. separados por coma
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0               # por si en algún momento querés reescribir/limpiar historia
+        with: { fetch-depth: 0 }
 
       - name: Set up Python
         uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
+        with: { python-version: "3.11" }
 
       - name: Cache pip
         uses: actions/cache@v4
         with:
           path: ~/.cache/pip
           key: ${{ runner.os }}-pip-${{ hashFiles('**/requirements.txt') }}
-          restore-keys: |
-            ${{ runner.os }}-pip-
+          restore-keys: ${{ runner.os }}-pip-
 
       - name: Install dependencies
         run: |
@@ -42,10 +42,9 @@ jobs:
           pip install -r requirements.txt
 
       - name: Run scraper
+        # 🔐 el token sigue viniendo de Secrets (más seguro)
         env:
-          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}       # del Environment o Repo secrets
-          APIFY_ACTOR_ID: ${{ secrets.APIFY_ACTOR_ID }} # opcional
-          SEARCH_TERMS: ${{ vars.SEARCH_TERMS }}        # opcional (Repository variable)
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
         run: python script.py
 
       - name: Upload CSV artifact
@@ -56,7 +55,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 30
 
-      # Commit automático de los CSV al repo (solo si hay archivos nuevos)
       - name: Commit CSV to repo
         if: ${{ hashFiles('output/*.csv') != '' }}
         uses: EndBug/add-and-commit@v9
@@ -64,4 +62,3 @@ jobs:
           add: "output/*.csv"
           message: "scrape: output ${{ github.run_id }}"
           default_author: github_actions
-          # branch: ${{ github.ref_name }}   # opcional; por defecto pushea a la misma rama del workflow
