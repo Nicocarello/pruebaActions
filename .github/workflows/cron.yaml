@@ -5,17 +5,23 @@ on:
     - cron: "0 * * * *"   # cada hora (UTC)
   workflow_dispatch:       # permite ejecutarlo manualmente
 
+# Necesario para poder pushear al repo con GITHUB_TOKEN
+permissions:
+  contents: write
+
 jobs:
   scrape:
     runs-on: ubuntu-latest
-    environment: prueba-Actions        # ← el Environment donde guardaste APIFY_TOKEN
+    environment: prueba-Actions        # ← tu Environment con APIFY_TOKEN
     concurrency:
       group: hourly-scrape
-      cancel-in-progress: true         # evita solapamientos si una corrida tarda >1h
+      cancel-in-progress: true         # evita solapamientos si tarda >1h
 
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0               # por si en algún momento querés reescribir/limpiar historia
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -49,3 +55,13 @@ jobs:
           path: output/*.csv
           if-no-files-found: warn
           retention-days: 30
+
+      # Commit automático de los CSV al repo (solo si hay archivos nuevos)
+      - name: Commit CSV to repo
+        if: ${{ hashFiles('output/*.csv') != '' }}
+        uses: EndBug/add-and-commit@v9
+        with:
+          add: "output/*.csv"
+          message: "scrape: output ${{ github.run_id }}"
+          default_author: github_actions
+          # branch: ${{ github.ref_name }}   # opcional; por defecto pushea a la misma rama del workflow
