@@ -3,6 +3,9 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import pandas as pd
 from apify_client import ApifyClient
+import smtplib
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
 
 # === Config desde entorno (poner en GitHub Secrets) ===
 APIFY_TOKEN = os.getenv("APIFY_TOKEN")  # <-- definir en GitHub Secrets
@@ -70,6 +73,38 @@ ts = now_utc.strftime("%Y%m%dT%H%M%SZ")
 csv_path = Path("output") / f"twitter_scrape_{ts}.csv"
 df.to_csv(csv_path, index=False)
 print(f"CSV guardado en: {csv_path}")
+
+
+# <----------------- ENVIO MAIL ------------------->
+EMAIL_HOST = os.getenv("EMAIL_HOST")
+EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
+EMAIL_USER = os.getenv("EMAIL_USER")
+EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
+EMAIL_RECIPIENT = os.getenv("EMAIL_RECIPIENT")
+
+# Solo mandamos si hay datos
+if not df.empty and all([EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_PASSWORD, EMAIL_RECIPIENT]):
+    # Convertimos los primeros 10 registros a tabla HTML
+    html_table = df.head(10).to_html(index=False, border=0)
+
+    # Crear email
+    msg = MIMEMultipart()
+    msg["From"] = EMAIL_USER
+    msg["To"] = EMAIL_RECIPIENT
+    msg["Subject"] = "Resultados Twitter Scraper - Últimos 10 registros"
+    msg.attach(MIMEText(html_table, "html"))
+
+    try:
+        with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT) as server:
+            server.starttls()
+            server.login(EMAIL_USER, EMAIL_PASSWORD)
+            server.send_message(msg)
+            print(f"Correo enviado a {EMAIL_RECIPIENT}")
+    except Exception as e:
+        print(f"Error enviando correo: {e}")
+else:
+    print("No se envió correo (datos vacíos o variables faltantes).")
+
 
 
 
