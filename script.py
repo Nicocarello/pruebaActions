@@ -119,78 +119,58 @@ def df_to_html_table(df, cols):
     return "<p>No hay registros.</p>"
 
 # === Preparar datos del día (UTC) ===
-# === columnas y helpers ===
 counts_cols = ["likeCount","quoteCount","retweetCount","replyCount","bookmarkCount"]
 numeric_cols = ["viewCount"] + counts_cols
 
-def coerce_numeric(df, cols):
-    for c in cols:
-        if c in df.columns:
-            df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0).astype(int)
-        else:
-            df[c] = 0
-    return df
-
-def prepare_display(df_in):
-    df_out = df_in.copy()
-    # asegurar números
-    df_out = coerce_numeric(df_out, numeric_cols)
-    # interacciones
-    df_out["interacciones"] = df_out[counts_cols].sum(axis=1)
-    # columnas finales (si no existen, se omiten)
-    cols_final = [
-        "text", "createdAt", "url",
-        "author/userName", "author/followers",
-        "viewCount", "interacciones"
-    ]
-    keep = [c for c in cols_final if c in df_out.columns]
-    df_out = df_out[keep]
-    # truncar texto largo pero dejando bastante espacio
-    if "text" in df_out.columns:
-        df_out["text"] = df_out["text"].fillna("").astype(str).str.strip()
-    # formatear fecha legible
-    if "createdAt" in df_out.columns and pd.api.types.is_datetime64_any_dtype(df_out["createdAt"]):
-        df_out["createdAt"] = df_out["createdAt"].dt.strftime("%Y-%m-%d %H:%M:%S UTC")
-    # formatear números con miles
-    for c in ["author/followers","viewCount","interacciones"]:
-        if c in df_out.columns:
-            df_out[c] = pd.to_numeric(df_out[c], errors="coerce").fillna(0).astype(int)
-    return df_out
-
-def df_to_html_table_compact(df):
-    if df.empty:
-        return "<p>No hay registros.</p>"
-    # render con clase "compact" para aplicar CSS
-    return df.to_html(index=False, escape=True, border=0, classes="compact")
-
-# === preparar data del día (UTC) como antes ===
 work_df = df.copy()
+
+# asegurar tipos numéricos
 work_df = coerce_numeric(work_df, numeric_cols)
 
+# createdAt a datetime ya lo trabajaste arriba; si existe, filtramos por el día UTC
 if "createdAt" in work_df.columns and pd.api.types.is_datetime64_any_dtype(work_df["createdAt"]):
     day_mask = work_df["createdAt"].dt.date == now_utc.date()
     day_df = work_df[day_mask].copy()
 else:
+    # si no hay createdAt, usamos todo el DF
     day_df = work_df.copy()
 
+# métricas
 total_tweets = len(day_df)
 total_views = int(day_df["viewCount"].sum()) if "viewCount" in day_df.columns else 0
 total_interactions = int(day_df[counts_cols].sum().sum()) if not day_df.empty else 0
+df['interacciones'] = df['likeCount'] + df['replyCount'] + df['retweetCount'] + df['bookmarkCount'] + df['quoteCount']
+
+# columnas simpáticas para mostrar
+show_cols = [
+    "author/userName","author/followers","text","url","viewCount","interacciones"
+]
+# textos cortos
+if "text" in day_df.columns:
+    day_df["text"] = day_df["text"].fillna("")
+    day_df["text_short"] = day_df["text"].apply(lambda s: truncate_text(s, 180))
+    # mostramos text_short en lugar de text
+    show_cols = [c for c in show_cols if c != "text"]
+    show_cols.insert(9, "text_short")  # cerca de métricas
 
 # Top 10 por viewCount
-top_views = day_df.sort_values("viewCount", ascending=False).head(10) if "viewCount" in day_df.columns else day_df.head(0)
-top_views = prepare_display(top_views)
-top_views_html = df_to_html_table_compact(top_views)
+if "viewCount" in day_df.columns:
+    top_views = day_df.sort_values("viewCount", ascending=False).head(10)
+else:
+    top_views = day_df.head(0)
 
-# Top 10 por followers
+# Top 10 por followers del autor
 if "author/followers" in day_df.columns:
-    tmp = day_df.copy()
-    tmp["author/followers"] = pd.to_numeric(tmp["author/followers"], errors="coerce").fillna(0).astype(int)
-    top_followers = tmp.sort_values("author/followers", ascending=False).head(10)
+    # coerce followers a num
+    top_followers = day_df.copy()
+    top_followers["author/followers"] = pd.to_numeric(top_followers["author/followers"], errors="coerce").fillna(0).astype(int)
+    top_followers = top_followers.sort_values("author/followers", ascending=False).head(10)
 else:
     top_followers = day_df.head(0)
-top_followers = prepare_display(top_followers)
-top_followers_html = df_to_html_table_compact(top_followers)
+
+# Tablas HTML
+top_views_html = df_to_html_table(top_views, show_cols)
+top_followers_html = df_to_html_table(top_followers, show_cols)
 
 # Nota si no hay datos del día
 empty_note = ""
@@ -205,33 +185,23 @@ html_body = f"""
 <meta charset="utf-8">
 <title>Resumen Twitter Scraper</title>
 <style>
-  body { font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin:0; padding:0; background:#f6f7f9; }
-  .container { max-width: 980px; margin: 24px auto; background:#ffffff; border-radius: 10px; overflow:hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.06); }
-  .header { background:#111827; color:#fff; padding:16px 20px; }
-  .header h1 { margin:0; font-size:18px; }
-  .sub { color:#9ca3af; font-size:12px; margin-top:4px; }
-  .content { padding: 20px; }
-  h2 { margin: 16px 0 8px; font-size: 16px; color:#111827; }
-  .cards { display:flex; flex-wrap:wrap; gap:12px; margin: 12px 0 20px; }
-  .card { flex:1 1 220px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:14px; }
-  .metric { font-size: 22px; font-weight:700; color:#111827; }
-  .label { font-size: 12px; color:#6b7280; }
-  table.compact { width:100%; border-collapse: collapse; font-size: 12px; table-layout: fixed; }
-  .compact th, .compact td { text-align:left; padding:8px 10px; border-bottom:1px solid #e5e7eb; vertical-align: top;
-    word-wrap: break-word; overflow-wrap: anywhere; white-space: normal; }
-  .compact th { font-weight:600; background:#f3f4f6; }
-  /* Ajustes de ancho por orden de columnas:
-     [text, createdAt, url, author/userName, author/followers, viewCount, interacciones] */
-  .compact th:nth-child(1), .compact td:nth-child(1) { width: 36%; } /* text */
-  .compact th:nth-child(2), .compact td:nth-child(2) { width: 14%; } /* createdAt */
-  .compact th:nth-child(3), .compact td:nth-child(3) { width: 22%; } /* url */
-  .compact th:nth-child(4), .compact td:nth-child(4) { width: 12%; } /* author/userName */
-  .compact th:nth-child(5), .compact td:nth-child(5) { width: 8%; }  /* author/followers */
-  .compact th:nth-child(6), .compact td:nth-child(6) { width: 4%; }  /* viewCount */
-  .compact th:nth-child(7), .compact td:nth-child(7) { width: 4%; }  /* interacciones */
-  a { color:#2563eb; text-decoration:none; }
-  .footer { color:#6b7280; font-size:12px; padding: 16px 20px 20px; }
-  .muted { color:#6b7280; }
+  body {{ font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif; margin:0; padding:0; background:#f6f7f9; }}
+  .container {{ max-width: 980px; margin: 24px auto; background:#ffffff; border-radius: 10px; overflow:hidden; box-shadow: 0 2px 10px rgba(0,0,0,0.06); }}
+  .header {{ background:#111827; color:#fff; padding:16px 20px; }}
+  .header h1 {{ margin:0; font-size:18px; }}
+  .sub {{ color:#9ca3af; font-size:12px; margin-top:4px; }}
+  .content {{ padding: 20px; }}
+  h2 {{ margin: 16px 0 8px; font-size: 16px; color:#111827; }}
+  .cards {{ display:flex; flex-wrap:wrap; gap:12px; margin: 12px 0 20px; }}
+  .card {{ flex:1 1 220px; background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:14px; }}
+  .metric {{ font-size: 22px; font-weight:700; color:#111827; }}
+  .label {{ font-size: 12px; color:#6b7280; }}
+  table {{ width:100%; border-collapse: collapse; font-size: 12px; }}
+  th, td {{ text-align:left; padding:8px 10px; border-bottom:1px solid #e5e7eb; vertical-align: top; }}
+  th {{ font-weight:600; background:#f3f4f6; }}
+  a {{ color:#2563eb; text-decoration:none; }}
+  .footer {{ color:#6b7280; font-size:12px; padding: 16px 20px 20px; }}
+  .muted {{ color:#6b7280; }}
 </style>
 </head>
 <body>
@@ -253,7 +223,7 @@ html_body = f"""
         </div>
         <div class="card">
           <div class="metric">{fmt(total_interactions)}</div>
-          <div class="label">Interacciones (likes + quotes + retweets + replies + bookmarks)</div>
+          <div class="label">Interacciones</div>
         </div>
       </div>
 
@@ -295,10 +265,4 @@ if should_send:
         print(f"Error enviando correo: {e}")
 else:
     print("No se envió correo (faltan variables EMAIL_*).")
-
-
-
-
-
-
 
