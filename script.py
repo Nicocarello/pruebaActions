@@ -143,18 +143,18 @@ day_df["interacciones"] = (
 # Texto corto
 if "text" in day_df.columns:
     day_df["text"] = day_df["text"].fillna("")
-    day_df["text_short"] = day_df["text"].apply(lambda s: truncate_text(s, 180))
+    day_df["text"] = day_df["text"].apply(lambda s: truncate_text(s, 180))
 
 # --- Renombrar columnas para mostrar en el mail ---
 rename_map = {
     "author/userName": "Usuario",
     "author/followers": "Seguidores",
-    "text_short": "text",       # usamos la versión corta
     "url": "url",
     "viewCount": "Impresiones",
     "interacciones": "interacciones"
 }
 day_df = day_df.rename(columns=rename_map)
+
 
 # Hacer que la URL sea clickeable en las tablas
 if "url" in day_df.columns:
@@ -280,3 +280,4 @@ if should_send:
         print(f"Error enviando correo: {e}")
 else:
     print("No se envió correo (faltan variables EMAIL_*).")
+
