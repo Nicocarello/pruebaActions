@@ -67,6 +67,9 @@ else:
 # Eliminamos duplicados
 df.drop_duplicates(subset = 'url',inplace = True)
 
+# Renombramos columnas
+df = df.rename(columns={'author/userName': 'Usuario', 'author/followers': 'Seguidores', 'url': 'URL', 'viewCount': 'Impresiones', 'text': 'Tweet', 'interacciones': 'Interacciones'})
+
 # Guardamos CSV con timestamp UTC
 Path("output").mkdir(exist_ok=True)
 ts = now_utc.strftime("%Y%m%dT%H%M%SZ")
@@ -120,7 +123,7 @@ def df_to_html_table(df, cols):
 
 # === Preparar datos del día (UTC) ===
 counts_cols = ["likeCount","quoteCount","retweetCount","replyCount","bookmarkCount"]
-numeric_cols = ["viewCount"] + counts_cols
+numeric_cols = ["Impresiones"] + counts_cols
 
 work_df = df.copy()
 
@@ -137,13 +140,13 @@ else:
 
 # métricas
 total_tweets = len(day_df)
-total_views = int(day_df["viewCount"].sum()) if "viewCount" in day_df.columns else 0
+total_views = int(day_df["Impresiones"].sum()) if "Impresiones" in day_df.columns else 0
 total_interactions = int(day_df[counts_cols].sum().sum()) if not day_df.empty else 0
 df['interacciones'] = df['likeCount'] + df['replyCount'] + df['retweetCount'] + df['bookmarkCount'] + df['quoteCount']
 
 # columnas simpáticas para mostrar
 show_cols = [
-    "author/userName","author/followers","text","url","viewCount","interacciones"
+    "Usuario","Seguidores","text","url","Impresiones","interacciones"
 ]
 # textos cortos
 if "text" in day_df.columns:
@@ -153,20 +156,30 @@ if "text" in day_df.columns:
     show_cols = [c for c in show_cols if c != "text"]
     show_cols.insert(9, "text_short")  # cerca de métricas
 
-# Top 10 por viewCount
-if "viewCount" in day_df.columns:
-    top_views = day_df.sort_values("viewCount", ascending=False).head(10)
+# Top 10 por Impresiones
+if "Impresiones" in day_df.columns:
+    top_views = day_df.sort_values("Impresiones", ascending=False).head(10)
 else:
     top_views = day_df.head(0)
 
 # Top 10 por followers del autor
-if "author/followers" in day_df.columns:
-    # coerce followers a num
+if "Seguidores" in day_df.columns:
     top_followers = day_df.copy()
-    top_followers["author/followers"] = pd.to_numeric(top_followers["author/followers"], errors="coerce").fillna(0).astype(int)
-    top_followers = top_followers.sort_values("author/followers", ascending=False).head(10)
+    
+    # coerce followers a num
+    top_followers["Seguidores"] = pd.to_numeric(
+        top_followers["Seguidores"], errors="coerce"
+    ).fillna(0).astype(int)
+    
+    # filtrar userName distinto de 'grok'
+    if "Usuario" in top_followers.columns:
+        top_followers = top_followers[top_followers["Usuario"].str.lower() != "grok"]
+    
+    # ordenar y tomar top 10
+    top_followers = top_followers.sort_values("Seguidores", ascending=False).head(10)
 else:
     top_followers = day_df.head(0)
+
 
 # Tablas HTML
 top_views_html = df_to_html_table(top_views, show_cols)
@@ -211,7 +224,7 @@ html_body = f"""
       <div class="sub">Fecha (UTC): {now_utc.strftime("%Y-%m-%d")} &middot; Generado a las {now_utc.strftime("%H:%M:%S")} UTC</div>
     </div>
     <div class="content">
-      <h2>1) Totales del día</h2>
+      <h2>1. Totales del día</h2>
       <div class="cards">
         <div class="card">
           <div class="metric">{fmt(total_tweets)}</div>
@@ -219,7 +232,7 @@ html_body = f"""
         </div>
         <div class="card">
           <div class="metric">{fmt(total_views)}</div>
-          <div class="label">Vistas (viewCount)</div>
+          <div class="label">Vistas</div>
         </div>
         <div class="card">
           <div class="metric">{fmt(total_interactions)}</div>
@@ -227,10 +240,10 @@ html_body = f"""
         </div>
       </div>
 
-      <h2>3) Top 10 por viewCount</h2>
+      <h2>2. Top 10 por Impresiones</h2>
       {top_views_html}
 
-      <h2>4) Top 10 por followers del autor</h2>
+      <h2>3. Top 10 por followers del autor</h2>
       {top_followers_html}
 
       {empty_note}
@@ -265,3 +278,4 @@ if should_send:
         print(f"Error enviando correo: {e}")
 else:
     print("No se envió correo (faltan variables EMAIL_*).")
+
