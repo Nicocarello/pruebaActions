@@ -11,12 +11,14 @@ import matplotlib.pyplot as plt
 from io import BytesIO
 import base64
 from email.mime.image import MIMEImage
+from zoneinfo import ZoneInfo
 
 # === Config desde entorno (poner en GitHub Secrets) ===
 APIFY_TOKEN = os.getenv("APIFY_TOKEN")  # <-- definir en GitHub Secrets
 # Aceptamos ambos nombres por compatibilidad
 ACTOR_ID = os.getenv("ACTOR_ID") or os.getenv("APIFY_ACTOR_ID") or "apidojo/twitter-scraper-lite"
 SEARCH_TERMS = os.getenv("SEARCH_TERMS", "mercado libre, mercadolibre")
+tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
 
 if not APIFY_TOKEN:
     raise RuntimeError("Falta APIFY_TOKEN (definilo en GitHub Secrets).")
@@ -25,7 +27,9 @@ apify_client = ApifyClient(APIFY_TOKEN)
 
 # === Ventana de tiempo: TODO EL DÍA UTC actual (00:00 -> ahora) ===
 now_utc = datetime.now(timezone.utc)
-start_date_utc = now_utc.strftime("%Y-%m-%d")  # día actual en UTC
+now_ar = now_utc.astimezone(tz_ar)
+
+start_date_utc = now_ar.strftime("%Y-%m-%d")  # día actual en UTC
 
 run_input = {
     "start": start_date_utc,  # día actual UTC
@@ -130,7 +134,7 @@ work_df = coerce_numeric(work_df, numeric_cols)
 
 # Filtrar al día UTC actual (coincide con 'start' que pasamos)
 if "createdAt" in work_df.columns and pd.api.types.is_datetime64_any_dtype(work_df["createdAt"]):
-    day_mask = work_df["createdAt"].dt.date == now_utc.date()
+    day_mask = work_df["createdAt"].dt.tz_convert(tz_ar).dt.date == now_ar.date()
     day_df = work_df[day_mask].copy()
 else:
     day_df = work_df.copy()
@@ -140,15 +144,16 @@ hourly_html = "<p>No hay datos para distribución por hora.</p>"
 hourly_img_bytes = None
 
 if "createdAt" in day_df.columns and not day_df.empty and pd.api.types.is_datetime64_any_dtype(day_df["createdAt"]):
-    day_df["hour"] = day_df["createdAt"].dt.hour
+    day_df["hour"] = day_df["createdAt"].dt.tz_convert(tz_ar).dt.hour
     hourly_counts = day_df.groupby("hour").size().reindex(range(24), fill_value=0)
 
     # gráfico simple con matplotlib
     fig, ax = plt.subplots(figsize=(8, 3))
     hourly_counts.plot(kind="bar", ax=ax)
-    ax.set_title("Distribución de tweets por hora (UTC)")
-    ax.set_xlabel("Hora (UTC)")
+    ax.set_title("Distribución de tweets por hora")
+    ax.set_xlabel("Hora")
     ax.set_ylabel("Tweets")
+    plt.xticks(rotation=45)
     plt.tight_layout()
 
     buf = BytesIO()
@@ -272,7 +277,7 @@ html_body = f"""
   <div class="container">
     <div class="header">
       <h1>Resumen diario Twitter Scraper</h1>
-      <div class="sub">Fecha (UTC): {now_utc.strftime("%Y-%m-%d")} &middot; Generado a las {now_utc.strftime("%H:%M:%S")} UTC</div>
+      <div class="sub">Fecha : {now_ar.strftime("%Y-%m-%d")} &middot; Generado a las {now_ar.strftime("%H:%M:%S")}</div>
       <div class="sub">Búsqueda: {', '.join(run_input['searchTerms'])}</div>
     </div>
     <div class="content">
@@ -341,6 +346,7 @@ if should_send:
         print(f"Error enviando correo: {e}")
 else:
     print("No se envió correo (faltan variables EMAIL_*).")
+
 
 
 
