@@ -140,30 +140,50 @@ else:
     day_df = work_df.copy()
 
 # --- Distribución por hora (UTC) como imagen (PNG) embebida por CID ---
-hourly_html = "<p>No hay datos para distribución por hora.</p>"
-hourly_img_bytes = None
+dist_html = "<p>No hay datos para distribución por hora.</p>"
+dist_img_bytes = None
 
 if "createdAt" in day_df.columns and not day_df.empty and pd.api.types.is_datetime64_any_dtype(day_df["createdAt"]):
-    day_df["hour"] = day_df["createdAt"].dt.tz_convert(tz_ar).dt.hour
-    hourly_counts = day_df.groupby("hour").size().reindex(range(24), fill_value=0)
+    tmp = day_df.copy()
 
-    # gráfico simple con matplotlib
-    fig, ax = plt.subplots(figsize=(8, 3))
-    hourly_counts.plot(kind="bar", ax=ax)
-    ax.set_title("Distribución de tweets por hora")
-    ax.set_xlabel("Hora")
-    ax.set_ylabel("Tweets")
-    plt.xticks(rotation=45)
+    # Asegurar numérico
+    if "Impresiones" in tmp.columns:
+        tmp["Impresiones"] = pd.to_numeric(tmp["Impresiones"], errors="coerce").fillna(0).astype(int)
+    else:
+        tmp["Impresiones"] = 0
+
+    # Hora local AR
+    tmp["_hour"] = tmp["createdAt"].dt.tz_convert(tz_ar).dt.hour
+
+    # Series por hora (0..23)
+    hours = list(range(24))
+    hourly_imp = tmp.groupby("_hour")["Impresiones"].sum().reindex(hours, fill_value=0)
+    hourly_cnt = tmp.groupby("_hour").size().reindex(hours, fill_value=0)
+
+    # Gráfico: barras impresiones + línea tweets, dos ejes
+    fig, ax1 = plt.subplots(figsize=(9, 3.6))
+
+    ax1.bar(hours, hourly_imp.values)
+    ax1.set_ylabel("Impresiones")
+    ax1.set_xlabel("Hora (AR)")
+    ax1.set_title("Distribución por hora — Impresiones (barras) y Tweets (línea)")
+
+    ax2 = ax1.twinx()
+    ax2.plot(hours, hourly_cnt.values, marker="o")
+    ax2.set_ylabel("Tweets")
+
+    ax1.set_xticks(hours)
+    ax1.set_xticklabels([f"{h:02d}" for h in hours])
+
     plt.tight_layout()
-
     buf = BytesIO()
     fig.savefig(buf, format="png")
     plt.close(fig)
     buf.seek(0)
-    hourly_img_bytes = buf.read()
+    dist_img_bytes = buf.read()
 
-    # En el HTML referenciamos la imagen por CID
-    hourly_html = '<img src="cid:hourly_dist" alt="Distribución por hora" style="max-width:100%;">'
+    # HTML referencia por CID
+    dist_html = '<img src="cid:hourly_mix" alt="Distribución por hora" style="max-width:100%;">'
 
 
 # Crear 'interacciones'
@@ -289,7 +309,7 @@ html_body = f"""
         </div>
         <div class="card">
           <div class="metric">{fmt(total_views)}</div>
-          <div class="label">Impresiones (viewCount)</div>
+          <div class="label">Impresiones</div>
         </div>
         <div class="card">
           <div class="metric">{fmt(total_interactions)}</div>
@@ -297,13 +317,13 @@ html_body = f"""
         </div>
       </div>
 
-      <h2>2) Top 10 por impresiones</h2>
+      <h2>2) Tweets más vistos</h2>
       {top_views_html}
 
-      <h2>3) Top 10 por seguidores del autor</h2>
+      <h2>3) Usuarios con más seguidores</h2>
       {top_followers_html}
-      <h2>4) Distribución por hora (UTC)</h2>
-{hourly_html}
+      <h2>4) Tweets e Impresiones por hora</h2>
+{dist_html}
       {empty_note}
     </div>
     <div class="footer">
@@ -330,10 +350,10 @@ if should_send:
     msg.attach(alt)
 
     # Adjuntar la imagen del gráfico si la generamos
-    if hourly_img_bytes:
-        img = MIMEImage(hourly_img_bytes, _subtype="png")
-        img.add_header("Content-ID", "<hourly_dist>")          # <- Debe coincidir con el src="cid:hourly_dist"
-        img.add_header("Content-Disposition", "inline", filename="hourly_dist.png")
+    if dist_img_bytes:
+        img = MIMEImage(dist_img_bytes, _subtype="png")
+        img.add_header("Content-ID", "<hourly_mix>")          # <- Debe coincidir con el src="cid:hourly_dist"
+        img.add_header("Content-Disposition", "inline", filename="hourly_mix.png")
         msg.attach(img)
 
     try:
@@ -346,6 +366,7 @@ if should_send:
         print(f"Error enviando correo: {e}")
 else:
     print("No se envió correo (faltan variables EMAIL_*).")
+
 
 
 
