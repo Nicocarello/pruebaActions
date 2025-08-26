@@ -169,15 +169,34 @@ if "Impresiones" in day_df.columns:
 else:
     top_views = day_df.head(0)
 
-# Top 10 por seguidores (excluyendo 'grok')
-if "Seguidores" in day_df.columns:
-    top_followers = day_df.copy()
-    top_followers["Seguidores"] = pd.to_numeric(top_followers["Seguidores"], errors="coerce").fillna(0).astype(int)
-    if "Usuario" in top_followers.columns:
-        top_followers = top_followers[top_followers["Usuario"].str.lower() != "grok"]
-    top_followers = top_followers.sort_values("Seguidores", ascending=False).head(10)
+# Top 10 por seguidores (1 tweet por usuario: el de más "Impresiones"; excluye 'grok')
+need_cols = {"Usuario", "Seguidores"}
+if need_cols.issubset(day_df.columns):
+    tf = day_df.copy()
+
+    # tipos numéricos
+    tf["Seguidores"] = pd.to_numeric(tf["Seguidores"], errors="coerce").fillna(0).astype(int)
+    if "Impresiones" in tf.columns:
+        tf["Impresiones"] = pd.to_numeric(tf["Impresiones"], errors="coerce").fillna(0).astype(int)
+    else:
+        tf["Impresiones"] = 0
+
+    # excluir 'grok'
+    if "Usuario" in tf.columns:
+        tf = tf[tf["Usuario"].str.lower() != "grok"]
+
+    if not tf.empty:
+        # elegir, para cada usuario, el tweet con mayor "Impresiones"
+        best_idx = tf.groupby("Usuario")["Impresiones"].idxmax()
+        top_followers = tf.loc[best_idx].copy()
+
+        # ordenar por seguidores y tomar top 10
+        top_followers = top_followers.sort_values("Seguidores", ascending=False).head(10)
+    else:
+        top_followers = tf.head(0)
 else:
     top_followers = day_df.head(0)
+
 
 # Tablas HTML
 top_views_html = df_to_html_table(top_views, show_cols)
@@ -280,4 +299,5 @@ if should_send:
         print(f"Error enviando correo: {e}")
 else:
     print("No se envió correo (faltan variables EMAIL_*).")
+
 
