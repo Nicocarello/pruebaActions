@@ -7,9 +7,10 @@ from apify_client import ApifyClient
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-# import matplotlib.pyplot as plt
-# from io import BytesIO
-# import base64
+import matplotlib.pyplot as plt
+from io import BytesIO
+import base64
+from email.mime.image import MIMEImage
 
 # === Config desde entorno (poner en GitHub Secrets) ===
 APIFY_TOKEN = os.getenv("APIFY_TOKEN")  # <-- definir en GitHub Secrets
@@ -134,14 +135,30 @@ if "createdAt" in work_df.columns and pd.api.types.is_datetime64_any_dtype(work_
 else:
     day_df = work_df.copy()
 
-# --- Distribución por hora (UTC) en tabla HTML ---
+# --- Distribución por hora (UTC) como imagen (PNG) embebida por CID ---
 hourly_html = "<p>No hay datos para distribución por hora.</p>"
+hourly_img_bytes = None
+
 if "createdAt" in day_df.columns and not day_df.empty and pd.api.types.is_datetime64_any_dtype(day_df["createdAt"]):
     day_df["hour"] = day_df["createdAt"].dt.hour
     hourly_counts = day_df.groupby("hour").size().reindex(range(24), fill_value=0)
-    hourly_df = hourly_counts.reset_index()
-    hourly_df.columns = ["Hora (UTC)", "Tweets"]
-    hourly_html = hourly_df.to_html(index=False, border=0)
+
+    # gráfico simple con matplotlib
+    fig, ax = plt.subplots(figsize=(8, 3))
+    hourly_counts.plot(kind="bar", ax=ax)
+    ax.set_title("Distribución de tweets por hora (UTC)")
+    ax.set_xlabel("Hora (UTC)")
+    ax.set_ylabel("Tweets")
+    plt.tight_layout()
+
+    buf = BytesIO()
+    fig.savefig(buf, format="png")
+    plt.close(fig)
+    buf.seek(0)
+    hourly_img_bytes = buf.read()
+
+    # En el HTML referenciamos la imagen por CID
+    hourly_html = '<img src="cid:hourly_dist" alt="Distribución por hora" style="max-width:100%;">'
 
 
 # Crear 'interacciones'
@@ -281,7 +298,7 @@ html_body = f"""
       <h2>3) Top 10 por seguidores del autor</h2>
       {top_followers_html}
       <h2>4) Distribución por hora (UTC)</h2>
-      {hourly_html}
+{hourly_html}
       {empty_note}
     </div>
     <div class="footer">
@@ -297,11 +314,22 @@ should_send = all([EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_PASSWORD, EMAIL_REC
 if should_send:
     recipients = [email.strip() for email in EMAIL_RECIPIENT.split(",") if email.strip()]
 
-    msg = MIMEMultipart()
+    # Estructura MIME correcta para HTML + imágenes embebidas
+    msg = MIMEMultipart("related")
     msg["From"] = EMAIL_USER
     msg["To"] = ", ".join(recipients)
     msg["Subject"] = f"Resumen Twitter Scraper - {now_utc.strftime('%Y-%m-%d')} (UTC)"
-    msg.attach(MIMEText(html_body, "html"))
+
+    alt = MIMEMultipart("alternative")
+    alt.attach(MIMEText(html_body, "html"))
+    msg.attach(alt)
+
+    # Adjuntar la imagen del gráfico si la generamos
+    if hourly_img_bytes:
+        img = MIMEImage(hourly_img_bytes, _subtype="png")
+        img.add_header("Content-ID", "<hourly_dist>")          # <- Debe coincidir con el src="cid:hourly_dist"
+        img.add_header("Content-Disposition", "inline", filename="hourly_dist.png")
+        msg.attach(img)
 
     try:
         with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT) as server:
@@ -313,6 +341,8 @@ if should_send:
         print(f"Error enviando correo: {e}")
 else:
     print("No se envió correo (faltan variables EMAIL_*).")
+
+
 
 
 
