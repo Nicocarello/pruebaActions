@@ -155,18 +155,20 @@ if "text" in day_df.columns:
     # Inserta text_short justo después de url
     show_cols.insert(show_cols.index("url") + 1, "text_short")
 
+df = df.rename(columns={'author/userName': 'Usuario', 'author/followers': 'Seguidores', 'url': 'URL', 'viewCount': 'Impresiones', 'text': 'Tweet', 'interacciones': 'Interacciones'})
+
 # Top 10 por viewCount
-if "viewCount" in day_df.columns:
-    top_views = day_df.sort_values("viewCount", ascending=False).head(10)
+if "Impresiones" in day_df.columns:
+    top_views = day_df.sort_values("Impresiones", ascending=False).head(10)
 else:
     top_views = day_df.head(0)
 
 # Top 10 por followers del autor
-if "author/followers" in day_df.columns:
+if "Seguidores" in day_df.columns:
     # coerce followers a num
     top_followers = day_df.copy()
-    top_followers["author/followers"] = pd.to_numeric(top_followers["author/followers"], errors="coerce").fillna(0).astype(int)
-    top_followers = top_followers.sort_values("author/followers", ascending=False).head(10)
+    top_followers["Seguidores"] = pd.to_numeric(top_followers["Seguidores"], errors="coerce").fillna(0).astype(int)
+    top_followers = top_followers.sort_values("Seguidores", ascending=False).head(10)
 else:
     top_followers = day_df.head(0)
 
@@ -221,7 +223,7 @@ html_body = f"""
         </div>
         <div class="card">
           <div class="metric">{fmt(total_views)}</div>
-          <div class="label">Vistas (viewCount)</div>
+          <div class="label">Vistas</div>
         </div>
         <div class="card">
           <div class="metric">{fmt(total_interactions)}</div>
@@ -229,7 +231,7 @@ html_body = f"""
         </div>
       </div>
 
-      <h2>3) Top 10 por viewCount</h2>
+      <h2>3) Top 10 por Impresiones</h2>
       {top_views_html}
 
       <h2>4) Top 10 por followers del autor</h2>
