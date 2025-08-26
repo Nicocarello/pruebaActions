@@ -151,7 +151,9 @@ if "text" in day_df.columns:
     day_df["text_short"] = day_df["text"].apply(lambda s: truncate_text(s, 180))
     # mostramos text_short en lugar de text
     show_cols = [c for c in show_cols if c != "text"]
-    show_cols.insert(9, "text_short")  # cerca de métricas
+    # === CAMBIO AQUI ===
+    # Inserta text_short justo después de url
+    show_cols.insert(show_cols.index("url") + 1, "text_short")
 
 # Top 10 por viewCount
 if "viewCount" in day_df.columns:
@@ -265,4 +267,5 @@ if should_send:
         print(f"Error enviando correo: {e}")
 else:
     print("No se envió correo (faltan variables EMAIL_*).")
+
 
