@@ -7,6 +7,9 @@ from apify_client import ApifyClient
 import smtplib
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+import matplotlib.pyplot as plt
+from io import BytesIO
+import base64
 
 # === Config desde entorno (poner en GitHub Secrets) ===
 APIFY_TOKEN = os.getenv("APIFY_TOKEN")  # <-- definir en GitHub Secrets
@@ -130,6 +133,30 @@ if "createdAt" in work_df.columns and pd.api.types.is_datetime64_any_dtype(work_
     day_df = work_df[day_mask].copy()
 else:
     day_df = work_df.copy()
+
+# --- Distribución por hora (UTC) ---
+hourly_html = "<p>No hay datos para distribución por hora.</p>"
+if "createdAt" in day_df.columns and not day_df.empty:
+    # columna con la hora en UTC
+    day_df["hour"] = day_df["createdAt"].dt.hour
+    hourly_counts = day_df.groupby("hour").size().reindex(range(24), fill_value=0)
+
+    # Crear gráfico
+    fig, ax = plt.subplots(figsize=(8,3))
+    hourly_counts.plot(kind="bar", ax=ax)
+    ax.set_title("Distribución de tweets por hora (UTC)")
+    ax.set_xlabel("Hora (UTC)")
+    ax.set_ylabel("Tweets")
+
+    # Convertir a imagen base64 para incrustar en HTML
+    buf = BytesIO()
+    plt.tight_layout()
+    fig.savefig(buf, format="png")
+    plt.close(fig)
+    buf.seek(0)
+    img_base64 = base64.b64encode(buf.read()).decode("utf-8")
+    hourly_html = f'<img src="data:image/png;base64,{img_base64}" alt="Distribución por hora" style="max-width:100%;">'
+
 
 # Crear 'interacciones'
 day_df["interacciones"] = (
@@ -267,6 +294,8 @@ html_body = f"""
 
       <h2>3) Top 10 por seguidores del autor</h2>
       {top_followers_html}
+      <h2>4) Distribución por hora (UTC)</h2>
+      {hourly_html}
 
       {empty_note}
     </div>
@@ -299,5 +328,6 @@ if should_send:
         print(f"Error enviando correo: {e}")
 else:
     print("No se envió correo (faltan variables EMAIL_*).")
+
 
 
