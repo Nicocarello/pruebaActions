@@ -1,5 +1,6 @@
+# script.py
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 import pandas as pd
 from apify_client import ApifyClient
@@ -9,41 +10,45 @@ from email.mime.text import MIMEText
 
 # === Config desde entorno (poner en GitHub Secrets) ===
 APIFY_TOKEN = os.getenv("APIFY_TOKEN")  # <-- definir en GitHub Secrets
-ACTOR_ID = os.getenv("ACTOR_ID", "apidojo/twitter-scraper-lite")
-SEARCH_TERMS = os.getenv("SEARCH_TERMS", "mercado libre")
+# Aceptamos ambos nombres por compatibilidad
+ACTOR_ID = os.getenv("ACTOR_ID") or os.getenv("APIFY_ACTOR_ID") or "apidojo/twitter-scraper-lite"
+SEARCH_TERMS = os.getenv("SEARCH_TERMS", "mercado libre, mercadolibre")
 
 if not APIFY_TOKEN:
     raise RuntimeError("Falta APIFY_TOKEN (definilo en GitHub Secrets).")
 
 apify_client = ApifyClient(APIFY_TOKEN)
 
-# Ventana de tiempo: última hora (UTC)
+# === Ventana de tiempo: TODO EL DÍA UTC actual (00:00 -> ahora) ===
 now_utc = datetime.now(timezone.utc)
-one_hour_ago = now_utc - timedelta(hours=1)
+start_date_utc = now_utc.strftime("%Y-%m-%d")  # día actual en UTC
 
-# El actor de ejemplo usa fechas tipo YYYY-MM-DD; si tu actor acepta datetime, podés pasar ISO
 run_input = {
-    "start": one_hour_ago.strftime("%Y-%m-%d"),
+    "start": start_date_utc,  # día actual UTC
     "searchTerms": [s.strip() for s in SEARCH_TERMS.split(",") if s.strip()],
     "sort": "Top",
-    "maxItems": 1000000
+    "maxItems": 100000  # razonable
 }
 
 print(f"Ejecutando Actor: {ACTOR_ID}...")
+print(f"Términos de búsqueda: {run_input['searchTerms']}")
 run = apify_client.actor(ACTOR_ID).call(run_input=run_input)
-
 print(f"Actor {ACTOR_ID} ejecutado. ID: {run['id']}, estado: {run['status']}")
 
-# Obtener items del dataset de la run
-dataset_items = apify_client.run(run["id"]).dataset().list_items().items
+# === Obtener items del dataset de la run (forma recomendada) ===
+dataset_id = run.get("defaultDatasetId")
+if not dataset_id:
+    raise RuntimeError("No se encontró defaultDatasetId en la run de Apify.")
+
+items_resp = apify_client.dataset(dataset_id).list_items()
+dataset_items = items_resp.items or []
 
 if not dataset_items:
     print("No se encontraron resultados en el dataset.")
-    # Igualmente generamos un CSV vacío con timestamp para trazar ejecuciones
     df = pd.DataFrame()
 else:
     df = pd.DataFrame(dataset_items)
-    # Enriquecemos columnas si existen
+    # Enriquecer columnas si existe la estructura 'author'
     if "author" in df.columns:
         df["author/followers"] = df["author"].apply(lambda x: x.get("followers") if isinstance(x, dict) else None)
         df["author/userName"] = df["author"].apply(lambda x: x.get("userName") if isinstance(x, dict) else None)
@@ -53,7 +58,6 @@ else:
         "likeCount","replyCount","retweetCount","quoteCount","bookmarkCount",
         "viewCount","source"
     ]
-    # Filtramos solo las columnas que existan
     existing = [c for c in desired_columns if c in df.columns]
     if existing:
         df = df[existing]
@@ -63,23 +67,18 @@ else:
         date_format = "%a %b %d %H:%M:%S %z %Y"
         df["createdAt"] = pd.to_datetime(df["createdAt"], format=date_format, errors="coerce")
 
+# Eliminar duplicados por URL si existe la columna
+if "url" in df.columns:
+    df.drop_duplicates(subset="url", inplace=True)
 
-# Eliminamos duplicados
-df.drop_duplicates(subset = 'url',inplace = True)
-
-# Renombramos columnas
-df = df.rename(columns={'author/userName': 'Usuario', 'author/followers': 'Seguidores', 'url': 'URL', 'viewCount': 'Impresiones', 'text': 'Tweet', 'interacciones': 'Interacciones'})
-
-# Guardamos CSV con timestamp UTC
+# Guardar CSV con timestamp UTC
 Path("output").mkdir(exist_ok=True)
 ts = now_utc.strftime("%Y%m%dT%H%M%SZ")
 csv_path = Path("output") / f"twitter_scrape_{ts}.csv"
 df.to_csv(csv_path, index=False)
 print(f"CSV guardado en: {csv_path}")
 
-
-# <----------------- ENVIO MAIL ------------------->
-
+# <----------------- ENVÍO MAIL ------------------->
 
 EMAIL_HOST = os.getenv("EMAIL_HOST")
 EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
@@ -88,7 +87,6 @@ EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
 EMAIL_RECIPIENT = os.getenv("EMAIL_RECIPIENT")  # puede ser "a@b.com,c@d.com"
 
 def fmt(n):
-    # separador de miles: punto (estilo ES)
     try:
         return f"{int(n):,}".replace(",", ".")
     except Exception:
@@ -105,7 +103,7 @@ def coerce_numeric(df, cols):
             df[c] = 0
     return df
 
-def truncate_text(s, length=140):
+def truncate_text(s, length=180):
     if not isinstance(s, str):
         return s
     s = s.strip()
@@ -113,79 +111,83 @@ def truncate_text(s, length=140):
 
 def df_to_html_table(df, cols):
     if not df.empty:
-        # solo columnas existentes
         cols = [c for c in cols if c in df.columns]
-        # orden final
         out = df[cols].copy()
-        # escape automático; index=False y sin bordes HTML por CSS
-        return out.to_html(index=False, escape=True, border=0)
+        # permitir tags HTML (para el <a href="...">Tweet</a>)
+        return out.to_html(index=False, escape=False, border=0)
     return "<p>No hay registros.</p>"
 
-# === Preparar datos del día (UTC) ===
+# === Preparación de datos del día (UTC) ===
 counts_cols = ["likeCount","quoteCount","retweetCount","replyCount","bookmarkCount"]
-numeric_cols = ["Impresiones"] + counts_cols
+numeric_cols = ["viewCount"] + counts_cols
 
 work_df = df.copy()
-
-# asegurar tipos numéricos
 work_df = coerce_numeric(work_df, numeric_cols)
 
-# createdAt a datetime ya lo trabajaste arriba; si existe, filtramos por el día UTC
+# Filtrar al día UTC actual (coincide con 'start' que pasamos)
 if "createdAt" in work_df.columns and pd.api.types.is_datetime64_any_dtype(work_df["createdAt"]):
     day_mask = work_df["createdAt"].dt.date == now_utc.date()
     day_df = work_df[day_mask].copy()
 else:
-    # si no hay createdAt, usamos todo el DF
     day_df = work_df.copy()
 
-# métricas
-total_tweets = len(day_df)
-total_views = int(day_df["Impresiones"].sum()) if "Impresiones" in day_df.columns else 0
-total_interactions = int(day_df[counts_cols].sum().sum()) if not day_df.empty else 0
-df['interacciones'] = df['likeCount'] + df['replyCount'] + df['retweetCount'] + df['bookmarkCount'] + df['quoteCount']
+# Crear 'interacciones'
+day_df["interacciones"] = (
+    day_df.get("likeCount", 0)
+    + day_df.get("replyCount", 0)
+    + day_df.get("retweetCount", 0)
+    + day_df.get("bookmarkCount", 0)
+    + day_df.get("quoteCount", 0)
+)
 
-# columnas simpáticas para mostrar
-show_cols = [
-    "Usuario","Seguidores","text","url","Impresiones","interacciones"
-]
-# textos cortos
+# Texto corto
 if "text" in day_df.columns:
     day_df["text"] = day_df["text"].fillna("")
     day_df["text_short"] = day_df["text"].apply(lambda s: truncate_text(s, 180))
-    # mostramos text_short en lugar de text
-    show_cols = [c for c in show_cols if c != "text"]
-    show_cols.insert(9, "text_short")  # cerca de métricas
 
-# Top 10 por Impresiones
+# --- Renombrar columnas para mostrar en el mail ---
+rename_map = {
+    "author/userName": "Usuario",
+    "author/followers": "Seguidores",
+    "text_short": "text",       # usamos la versión corta
+    "url": "url",
+    "viewCount": "Impresiones",
+    "interacciones": "interacciones"
+}
+day_df = day_df.rename(columns=rename_map)
+
+# Hacer que la URL sea clickeable en las tablas
+if "url" in day_df.columns:
+    day_df["url"] = day_df["url"].apply(lambda u: f'<a href="{u}">Tweet</a>' if isinstance(u, str) else u)
+
+# Columnas a mostrar en tablas
+show_cols = ["Usuario","Seguidores","text","url","Impresiones","interacciones"]
+
+# Top 10 por impresiones
 if "Impresiones" in day_df.columns:
     top_views = day_df.sort_values("Impresiones", ascending=False).head(10)
 else:
     top_views = day_df.head(0)
 
-# Top 10 por followers del autor
+# Top 10 por seguidores (excluyendo 'grok')
 if "Seguidores" in day_df.columns:
     top_followers = day_df.copy()
-    
-    # coerce followers a num
-    top_followers["Seguidores"] = pd.to_numeric(
-        top_followers["Seguidores"], errors="coerce"
-    ).fillna(0).astype(int)
-    
-    # filtrar userName distinto de 'grok'
+    top_followers["Seguidores"] = pd.to_numeric(top_followers["Seguidores"], errors="coerce").fillna(0).astype(int)
     if "Usuario" in top_followers.columns:
         top_followers = top_followers[top_followers["Usuario"].str.lower() != "grok"]
-    
-    # ordenar y tomar top 10
     top_followers = top_followers.sort_values("Seguidores", ascending=False).head(10)
 else:
     top_followers = day_df.head(0)
-
 
 # Tablas HTML
 top_views_html = df_to_html_table(top_views, show_cols)
 top_followers_html = df_to_html_table(top_followers, show_cols)
 
-# Nota si no hay datos del día
+# Métricas totales (sobre el día)
+total_tweets = len(day_df)
+total_views = int(day_df["Impresiones"].sum()) if "Impresiones" in day_df.columns else 0
+total_interactions = int(day_df["interacciones"].sum()) if "interacciones" in day_df.columns else 0
+
 empty_note = ""
 if total_tweets == 0:
     empty_note = "<p><em>No se encontraron tweets para el día (UTC) seleccionado.</em></p>"
@@ -222,9 +224,10 @@ html_body = f"""
     <div class="header">
       <h1>Resumen diario Twitter Scraper</h1>
       <div class="sub">Fecha (UTC): {now_utc.strftime("%Y-%m-%d")} &middot; Generado a las {now_utc.strftime("%H:%M:%S")} UTC</div>
+      <div class="sub">Búsqueda: {', '.join(run_input['searchTerms'])}</div>
     </div>
     <div class="content">
-      <h2>1. Totales del día</h2>
+      <h2>1) Totales del día</h2>
       <div class="cards">
         <div class="card">
           <div class="metric">{fmt(total_tweets)}</div>
@@ -232,7 +235,7 @@ html_body = f"""
         </div>
         <div class="card">
           <div class="metric">{fmt(total_views)}</div>
-          <div class="label">Vistas</div>
+          <div class="label">Impresiones (viewCount)</div>
         </div>
         <div class="card">
           <div class="metric">{fmt(total_interactions)}</div>
@@ -240,10 +243,10 @@ html_body = f"""
         </div>
       </div>
 
-      <h2>2. Top 10 por Impresiones</h2>
+      <h2>2) Top 10 por impresiones</h2>
       {top_views_html}
 
-      <h2>3. Top 10 por followers del autor</h2>
+      <h2>3) Top 10 por seguidores del autor</h2>
       {top_followers_html}
 
       {empty_note}
@@ -271,11 +274,9 @@ if should_send:
         with smtplib.SMTP(EMAIL_HOST, EMAIL_PORT) as server:
             server.starttls()
             server.login(EMAIL_USER, EMAIL_PASSWORD)
-            # send_message toma los destinatarios de los headers
             server.send_message(msg)
             print(f"Correo enviado a: {', '.join(recipients)}")
     except Exception as e:
         print(f"Error enviando correo: {e}")
 else:
     print("No se envió correo (faltan variables EMAIL_*).")
-
