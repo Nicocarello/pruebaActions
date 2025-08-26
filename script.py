@@ -275,9 +275,8 @@ html_body = f"""
 <body>
   <div class="container">
     <div class="header">
-      <h1>Resumen diario Twitter Scraper</h1>
+      <h1>Tweets más destacados del día</h1>
       <div class="sub">Fecha : {now_ar.strftime("%Y-%m-%d")} &middot; Generado a las {now_ar.strftime("%H:%M:%S")}</div>
-      <div class="sub">Búsqueda: {', '.join(run_input['searchTerms'])}</div>
     </div>
     <div class="content">
       <h2>1) Totales del día</h2>
@@ -322,7 +321,7 @@ if should_send:
     msg = MIMEMultipart("related")
     msg["From"] = EMAIL_USER
     msg["To"] = ", ".join(recipients)
-    msg["Subject"] = f"Resumen Twitter Scraper - {now_utc.strftime('%Y-%m-%d')} (UTC)"
+    msg["Subject"] = f"Resumen Twitter Scraper - {now_utc.strftime('%Y-%m-%d')}"
 
     alt = MIMEMultipart("alternative")
     alt.attach(MIMEText(html_body, "html"))
@@ -345,6 +344,7 @@ if should_send:
         print(f"Error enviando correo: {e}")
 else:
     print("No se envió correo (faltan variables EMAIL_*).")
+
 
 
 
