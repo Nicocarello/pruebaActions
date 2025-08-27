@@ -287,7 +287,7 @@ html_body = f"""
         </div>
         <div class="card">
           <div class="metric">{fmt(total_views)}</div>
-          <div class="label">Impresiones (viewCount)</div>
+          <div class="label">Impresiones</div>
         </div>
         <div class="card">
           <div class="metric">{fmt(total_interactions)}</div>
@@ -344,6 +344,7 @@ if should_send:
         print(f"Error enviando correo: {e}")
 else:
     print("No se envió correo (faltan variables EMAIL_*).")
+
 
 
 
