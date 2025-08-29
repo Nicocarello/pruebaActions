@@ -140,16 +140,17 @@ def df_to_html_table(df, cols):
     return "<p>No hay registros.</p>"
 
 # --- NUEVO: Función para extraer temas con IA ---
-# --- Función para extraer temas con IA ---
-def extraer_temas_generales_con_ia(df, num_temas=3):
+def extraer_temas_generales_con_ia(df, contexto, num_temas=3):
     """
     Analiza una colección de tweets y extrae los temas principales usando un LLM.
-    Devuelve el resultado con formato HTML.
     """
     if model is None:
         return "El modelo de IA no está disponible. No se pudo realizar el análisis."
     
+    # Preparamos el texto a analizar
     tweets_list = df['text'].astype(str).tolist()
+    
+    # Tomamos una muestra de tweets para no exceder el límite de tokens
     sample_size = 500
     if len(tweets_list) > sample_size:
         tweets_list = tweets_list[:sample_size]
@@ -159,27 +160,21 @@ def extraer_temas_generales_con_ia(df, num_temas=3):
     if not texto_a_analizar.strip():
         return "No hay tweets suficientes para extraer temas generales."
     
-    # NUEVO PROMPT: Le pedimos al modelo que nos devuelva un formato específico.
-    prompt = f"""CONTEXTO: 
-Analiza la siguiente colección de tweets sobre la empresa Mercado Libre y extrae los {num_temas} temas principales.
+    prompt = f"""CONTEXTO: {contexto}
+Analiza la siguiente colección de tweets y extrae los {num_temas} temas principales o más mencionados.
 Para cada tema, proporciona un nombre, una breve explicación y un tweet de ejemplo relevante.
-Formatea el resultado de la siguiente manera, sin texto adicional:
-1. **[Nombre del tema]**
+El formato de salida debe ser exactamente:
+1. [Nombre del tema]
 [Breve explicación del tema]
-Ejemplo: *"[tweet de ejemplo relevante]"*
-2. **[Nombre del tema]**
+Ejemplo: "[tweet de ejemplo relevante]"
+2. [Nombre del tema]
 ...
 ---
 Tweets para analizar:\n{texto_a_analizar}"""
     
     try:
         response = model.generate_content(prompt, generation_config={"temperature": 0.4})
-        # Reemplazamos los saltos de línea para que se vean bien en HTML.
-        # Las etiquetas markdown de negrita y cursiva se convierten en HTML.
-        html_output = response.text.strip().replace('\n', '<br>')
-        html_output = html_output.replace('**', '<b>').replace('</b>', '</b>')
-        html_output = html_output.replace('*', '<i>').replace('</i>', '</i>')
-        return html_output
+        return response.text.strip()
     except Exception as e:
         print(f"Error al extraer temas generales con IA: {e}")
         return "No se pudieron extraer temas generales."
@@ -367,7 +362,7 @@ html_body = f"""
             {top_followers_html}
             <h2>4) Temas más mencionados (Análisis con IA)</h2>
             <div class="summary-box">
-                {temas_generales}
+                <pre>{temas_generales}</pre>
             </div>
             <h2>5) Evolución tweets</h2>
 {hourly_html}
@@ -413,6 +408,3 @@ if should_send:
         print(f"Error enviando correo: {e}")
 else:
     print("No se envió correo (faltan variables EMAIL_*).")
-
-
-
