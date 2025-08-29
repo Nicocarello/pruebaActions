@@ -367,7 +367,7 @@ html_body = f"""
             {top_followers_html}
             <h2>4) Temas más mencionados (Análisis con IA)</h2>
             <div class="summary-box">
-                {temas_generales}  </div>
+                {temas_generales}
             </div>
             <h2>5) Evolución tweets</h2>
 {hourly_html}
@@ -413,5 +413,6 @@ if should_send:
         print(f"Error enviando correo: {e}")
 else:
     print("No se envió correo (faltan variables EMAIL_*).")
+
 
 
