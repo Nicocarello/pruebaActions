@@ -2,7 +2,7 @@ name: Run Twitter scraper daily at 20:00 UTC
 
 on:
   schedule:
-    - cron: "0 23 * * *"  # Todos los días a las 20:00 UTC
+    - cron: "0 23 * * *"
   workflow_dispatch:
 
 permissions:
@@ -19,7 +19,6 @@ jobs:
     env:
       APIFY_ACTOR_ID: ${{ secrets.ACTOR_ID }}
       SEARCH_TERMS: ${{ vars.SEARCH_TERMS }}
-      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
     steps:
       - name: Checkout repo
@@ -45,12 +44,12 @@ jobs:
       - name: Run scraper
         env:
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
-          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           EMAIL_HOST: ${{ secrets.EMAIL_HOST }}
           EMAIL_PORT: ${{ secrets.EMAIL_PORT }}
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASSWORD: ${{ secrets.EMAIL_PASSWORD }}
           EMAIL_RECIPIENT: ${{ secrets.EMAIL_RECIPIENT }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} # <--- La variable se define una sola vez aquí
         run: python script.py
 
       - name: Upload CSV artifact
