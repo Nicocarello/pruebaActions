@@ -19,6 +19,7 @@ jobs:
     env:
       APIFY_ACTOR_ID: ${{ secrets.ACTOR_ID }}
       SEARCH_TERMS: ${{ vars.SEARCH_TERMS }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
 
     steps:
       - name: Checkout repo
@@ -44,6 +45,7 @@ jobs:
       - name: Run scraper
         env:
           APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           EMAIL_HOST: ${{ secrets.EMAIL_HOST }}
           EMAIL_PORT: ${{ secrets.EMAIL_PORT }}
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
