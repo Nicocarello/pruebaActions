@@ -12,9 +12,18 @@ from io import BytesIO
 import base64
 from email.mime.image import MIMEImage
 from zoneinfo import ZoneInfo
+import google.generativeai as genai
+
 
 # === Config desde entorno (poner en GitHub Secrets) ===
 APIFY_TOKEN = os.getenv("APIFY_TOKEN")  # <-- definir en GitHub Secrets
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY") # <-- Define this in GitHub Secrets
+model = None
+if GEMINI_API_KEY:
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel("gemini-2.0-pro-latest")
+else:
+    print("Warning: GEMINI_API_KEY no definida. La extracción de temas con IA no funcionará.")
 # Aceptamos ambos nombres por compatibilidad
 ACTOR_ID = os.getenv("ACTOR_ID") or os.getenv("APIFY_ACTOR_ID") or "apidojo/twitter-scraper-lite"
 SEARCH_TERMS = os.getenv("SEARCH_TERMS", "mercado libre, mercadolibre")
@@ -24,6 +33,56 @@ if not APIFY_TOKEN:
     raise RuntimeError("Falta APIFY_TOKEN (definilo en GitHub Secrets).")
 
 apify_client = ApifyClient(APIFY_TOKEN)
+
+
+# ----------------------- FUNCION EXTRAER TEMAS -------------------#
+def extraer_temas_generales_con_ia(df, num_temas=3):
+    """
+    Analiza una colección de tweets y extrae los temas principales usando un LLM.
+    
+    Args:
+        df (pd.DataFrame): DataFrame con los tweets.
+        num_temas (int): Número de temas a extraer.
+    
+    Returns:
+        str: Un resumen en texto plano con los temas extraídos.
+    """
+    if model is None:
+        return "El modelo de IA no está disponible. No se pudo realizar el análisis."
+    
+    # Preparamos el texto a analizar
+    tweets_list = df['text'].astype(str).tolist()
+    
+    # Tomamos una muestra de tweets para no exceder el límite de tokens
+    sample_size = 500
+    if len(tweets_list) > sample_size:
+        # Aquí puedes tomar una muestra aleatoria o simplemente los primeros.
+        # Por simplicidad, tomamos los primeros.
+        tweets_list = tweets_list[:sample_size]
+    
+    texto_a_analizar = "\n".join(tweets_list)
+    
+    if not texto_a_analizar.strip():
+        return "No hay tweets suficientes para extraer temas generales."
+    
+    prompt = f"""Analiza la siguiente colección de tweets sobre la empresa Mercado Libre y extrae los {num_temas} temas principales o más mencionados.
+Para cada tema, proporciona un nombre, una breve explicación y un tweet de ejemplo relevante.
+El formato de salida debe ser exactamente:
+1. [Nombre del tema]
+[Breve explicación del tema]
+Ejemplo: "[tweet de ejemplo relevante]"
+2. [Nombre del tema]
+...
+---
+Tweets para analizar:\n{texto_a_analizar}"""
+    
+    try:
+        response = model.generate_content(prompt, generation_config={"temperature": 0.4})
+        return response.text.strip()
+    except Exception as e:
+        print(f"Error al extraer temas generales con IA: {e}")
+        return "No se pudieron extraer temas generales."
+
 
 # === Ventana de tiempo: TODO EL DÍA UTC actual (00:00 -> ahora) ===
 now_utc = datetime.now(timezone.utc)
@@ -232,9 +291,17 @@ else:
     top_followers = day_df.head(0)
 
 
+temas_generales = "No se pudo realizar el análisis de temas."
+if not day_df.empty:
+    # Contexto para el LLM
+    contexto_ia = f"Análisis de tweets sobre {SEARCH_TERMS} del día {now_ar.strftime('%Y-%m-%d')}."
+    temas_generales = extraer_temas_generales_con_ia(day_df, contexto_ia)
+
+
 # Tablas HTML
 top_views_html = df_to_html_table(top_views, show_cols)
 top_followers_html = df_to_html_table(top_followers, show_cols)
+
 
 # Métricas totales (sobre el día)
 total_tweets = len(day_df)
@@ -270,44 +337,29 @@ html_body = f"""
   a {{ color:#2563eb; text-decoration:none; }}
   .footer {{ color:#6b7280; font-size:12px; padding: 16px 20px 20px; }}
   .muted {{ color:#6b7280; }}
+  .summary-box {{ background:#f9fafb; border:1px solid #e5e7eb; border-radius:8px; padding:16px; margin-bottom:20px; white-space: pre-wrap; }}
 </style>
 </head>
 <body>
-  <div class="container">
-    <div class="header">
-      <h1>Tweets más destacados del día</h1>
-      <div class="sub">Fecha : {now_ar.strftime("%Y-%m-%d")} &middot; Generado a las {now_ar.strftime("%H:%M:%S")}</div>
-    </div>
-    <div class="content">
-      <h2>1) Totales del día</h2>
-      <div class="cards">
-        <div class="card">
-          <div class="metric">{fmt(total_tweets)}</div>
-          <div class="label">Tweets recolectados</div>
+    <div class="container">
+        <div class="header">
+            <h1>Tweets más destacados del día</h1>
+            <div class="sub">Fecha : {now_ar.strftime("%Y-%m-%d")} &middot; Generado a las {now_ar.strftime("%H:%M:%S")}</div>
         </div>
-        <div class="card">
-          <div class="metric">{fmt(total_views)}</div>
-          <div class="label">Impresiones</div>
+        <div class="content">
+            <h2>4) Temas más mencionados (Análisis con IA)</h2>
+            <div class="summary-box">
+                <pre>{temas_generales}</pre>
+            </div>
+            
+            <h2>5) Evolución tweets</h2>
+            {hourly_html}
+            {empty_note}
         </div>
-        <div class="card">
-          <div class="metric">{fmt(total_interactions)}</div>
-          <div class="label">Interacciones</div>
+        <div class="footer">
+            <div class="muted">Fuente: {ACTOR_ID}. Archivo CSV: {csv_path.name}</div>
         </div>
-      </div>
-
-      <h2>2) Tweets más vistos</h2>
-      {top_views_html}
-
-      <h2>3) Usuarios con más seguidores</h2>
-      {top_followers_html}
-      <h2>4) Evolución tweets</h2>
-{hourly_html}
-      {empty_note}
     </div>
-    <div class="footer">
-      <div class="muted">Fuente: {ACTOR_ID}. Archivo CSV: {csv_path.name}</div>
-    </div>
-  </div>
 </body>
 </html>
 """
@@ -344,6 +396,7 @@ if should_send:
         print(f"Error enviando correo: {e}")
 else:
     print("No se envió correo (faltan variables EMAIL_*).")
+
 
 
 
