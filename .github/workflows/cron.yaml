@@ -1,4 +1,4 @@
-name: Run Twitter scraper daily at 20:00 UTC
+name: Run Mepago scraper daily at 20:00 UTC
 
 on:
   schedule:
