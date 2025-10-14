@@ -18,7 +18,7 @@ import google.generativeai as genai
 APIFY_TOKEN = os.getenv("APIFY_TOKEN") # <-- definir en GitHub Secrets
 # Aceptamos ambos nombres por compatibilidad
 ACTOR_ID = os.getenv("ACTOR_ID") or os.getenv("APIFY_ACTOR_ID") or "apidojo/twitter-scraper-lite"
-SEARCH_TERMS = os.getenv("SEARCH_TERMS", "mercado pago, mercadopago")
+SEARCH_TERMS = os.getenv("SEARCH_TERMS_MEPAGO", "mercado pago, mercadopago")
 tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
 
 # --- NUEVO: Configuración del LLM ---
