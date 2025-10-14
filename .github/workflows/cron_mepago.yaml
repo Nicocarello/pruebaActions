@@ -18,7 +18,7 @@ jobs:
 
     env:
       APIFY_ACTOR_ID: ${{ secrets.ACTOR_ID }}
-      SEARCH_TERMS: ${{ vars.SEARCH_TERMS }}
+      SEARCH_TERMS_MEPAGO: ${{ vars.SEARCH_TERMS_MEPAGO }}
 
     steps:
       - name: Checkout repo
