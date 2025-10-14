@@ -18,7 +18,7 @@ import google.generativeai as genai
 APIFY_TOKEN = os.getenv("APIFY_TOKEN") # <-- definir en GitHub Secrets
 # Aceptamos ambos nombres por compatibilidad
 ACTOR_ID = os.getenv("ACTOR_ID") or os.getenv("APIFY_ACTOR_ID") or "apidojo/twitter-scraper-lite"
-SEARCH_TERMS = os.getenv("SEARCH_TERMS", "mercado libre, mercadolibre")
+SEARCH_TERMS = os.getenv("SEARCH_TERMS", "mercado libre, mercadolibre, ml_argentina")
 tz_ar = ZoneInfo("America/Argentina/Buenos_Aires")
 
 # --- NUEVO: Configuración del LLM ---
@@ -408,3 +408,4 @@ if should_send:
         print(f"Error enviando correo: {e}")
 else:
     print("No se envió correo (faltan variables EMAIL_*).")
+
