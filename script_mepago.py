@@ -106,7 +106,7 @@ EMAIL_HOST = os.getenv("EMAIL_HOST")
 EMAIL_PORT = int(os.getenv("EMAIL_PORT", "587"))
 EMAIL_USER = os.getenv("EMAIL_USER")
 EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
-EMAIL_RECIPIENT = os.getenv("EMAIL_RECIPIENT") # puede ser "a@b.com,c@d.com"
+EMAIL_RECIPIENT = os.getenv("EMAIL_RECIPIENT_MEPAGO") # puede ser "a@b.com,c@d.com"
 
 def fmt(n):
     try:
