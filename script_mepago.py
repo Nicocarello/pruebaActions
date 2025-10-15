@@ -12,11 +12,13 @@ from io import BytesIO
 import base64
 from email.mime.image import MIMEImage
 from zoneinfo import ZoneInfo
-import google.generativeai as genai
+# import google.generativeai as genai
 import re
 import json
 import math
 import time
+from google import genai
+
 
 # === Config desde entorno (poner en GitHub Secrets) ===
 APIFY_TOKEN = os.getenv("APIFY_TOKEN") # <-- definir en GitHub Secrets
