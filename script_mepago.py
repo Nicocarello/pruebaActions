@@ -13,6 +13,10 @@ import base64
 from email.mime.image import MIMEImage
 from zoneinfo import ZoneInfo
 import google.generativeai as genai
+import re
+import json
+import math
+import time
 
 # === Config desde entorno (poner en GitHub Secrets) ===
 APIFY_TOKEN = os.getenv("APIFY_TOKEN") # <-- definir en GitHub Secrets
@@ -140,44 +144,160 @@ def df_to_html_table(df, cols):
     return "<p>No hay registros.</p>"
 
 # --- NUEVO: Función para extraer temas con IA ---
-def extraer_temas_generales_con_ia(df, contexto, num_temas=3):
+def extraer_temas_generales_con_ia(df, contexto, num_temas=3, sample_size=200):
     """
-    Analiza una colección de tweets y extrae los temas principales usando un LLM.
+    Versión robusta para extraer temas con Gemini (intenta manejar límites de token, parseo y errores).
+    - df: DataFrame con columna 'text'
+    - contexto: texto corto para dar contexto al modelo
+    - num_temas: cantidad final de temas a devolver
+    - sample_size: cuántos tweets tomar (recortar para no saturar tokens)
+    Retorna: string formateado (igual que antes) o mensaje de error.
     """
     if model is None:
         return "El modelo de IA no está disponible. No se pudo realizar el análisis."
-    
-    # Preparamos el texto a analizar
-    tweets_list = df['text'].astype(str).tolist()
-    
-    # Tomamos una muestra de tweets para no exceder el límite de tokens
-    sample_size = 500
-    if len(tweets_list) > sample_size:
-        tweets_list = tweets_list[:sample_size]
-    
-    texto_a_analizar = "\n".join(tweets_list)
-    
-    if not texto_a_analizar.strip():
+
+    # Preparar tweets
+    tweets = df["text"].astype(str).dropna().tolist()
+    if not tweets:
         return "No hay tweets suficientes para extraer temas generales."
-    
-    prompt = f"""CONTEXTO: {contexto}
-Analiza la siguiente colección de tweets y extrae los {num_temas} temas principales o más mencionados.
-Para cada tema, proporciona un nombre, una breve explicación y un tweet de ejemplo relevante.
-El formato de salida debe ser exactamente:
-1. [Nombre del tema]
-[Breve explicación del tema]
-Ejemplo: "[tweet de ejemplo relevante]"
-2. [Nombre del tema]
-...
----
-Tweets para analizar:\n{texto_a_analizar}"""
-    
-    try:
-        response = model.generate_content(prompt, generation_config={"temperature": 0.4})
-        return response.text.strip()
-    except Exception as e:
-        print(f"Error al extraer temas generales con IA: {e}")
+
+    tweets = tweets[:sample_size]
+
+    # Construir chunks de texto por tamaño aproximado (caracteres) para respetar tokens
+    max_chars_per_chunk = 3500  # heurística — ajustar si ves truncados
+    chunks = []
+    cur = ""
+    for t in tweets:
+        if not cur:
+            cur = t
+        elif len(cur) + 1 + len(t) > max_chars_per_chunk:
+            chunks.append(cur)
+            cur = t
+        else:
+            cur += "\n" + t
+    if cur:
+        chunks.append(cur)
+
+    # Acumuladores para luego agregar resultados entre chunks
+    topic_counts = {}      # nombre -> score acumulado (si viene score) o conteo
+    topic_examples = {}    # nombre -> ejemplo representativo
+    debug_responses = []   # guardar respuestas crudas para debug
+
+    for i, chunk in enumerate(chunks):
+        prompt = f"""
+CONTEXTO: {contexto}
+
+Analiza la siguiente colección de tweets y extrae hasta {num_temas} temas principales.
+Para cada tema devuelve un objeto JSON con las claves:
+- name: nombre breve del tema
+- explanation: explicación corta (1-2 frases)
+- example: un tweet de ejemplo
+- score: (opcional) número que indique relevancia o frecuencia
+
+La salida debe ser un JSON que contenga una lista de objetos. Ejemplo válido:
+[{{"name":"Cobros","explanation":"...", "example":"...", "score": 12}}, ...]
+
+Tweets para analizar (chunk {i+1}/{len(chunks)}):
+{chunk}
+"""
+        # reintentar 2 veces si hay errores transitorios
+        resp_text = None
+        for attempt in range(2):
+            try:
+                # Intentamos usar la misma llamada que tenías; capturamos cualquier forma de respuesta
+                response = model.generate_content(prompt, generation_config={"temperature": 0.2, "max_output_tokens": 800})
+                # varios SDKs devuelven diferentes atributos; intentamos obtener el texto lo más robustamente posible
+                resp_text = getattr(response, "text", None) or getattr(response, "content", None) or str(response)
+                break
+            except Exception as e:
+                print(f"[IA] intento {attempt+1} fallo en chunk {i+1}: {e}")
+                time.sleep(1)
+
+        if not resp_text:
+            print(f"[IA] No hubo respuesta para chunk {i+1}.")
+            continue
+
+        debug_responses.append(resp_text)
+        # Intentamos extraer el JSON dentro de la respuesta (si el modelo agregó comentarios)
+        json_blob = None
+        m = re.search(r'(\[.*\]|\{.*\})', resp_text, flags=re.S)
+        if m:
+            candidate = m.group(1)
+            # A veces el modelo usa comillas “curly” o comas finales; intentamos limpiar y parsear
+            try:
+                json_blob = json.loads(candidate)
+            except Exception:
+                # limpieza simple: reemplazar comillas “curly” por estándar y eliminar comas terminales
+                cleaned = candidate.replace("“", '"').replace("”", '"').replace("’", "'")
+                cleaned = re.sub(r",\s*([\]\}])", r"\1", cleaned)
+                try:
+                    json_blob = json.loads(cleaned)
+                except Exception as e:
+                    print(f"[IA] Falló parseo JSON chunk {i+1}: {e}. Respuesta cruda guardada para debug.")
+
+        # Si no logramos parsear JSON, intentamos heurística: buscar líneas tipo "1. Tema - explicación"
+        if not json_blob:
+            # heurística simple: buscar líneas "1." / "2." y extraer
+            lines = [ln.strip() for ln in resp_text.splitlines() if ln.strip()]
+            candidate_topics = []
+            for ln in lines:
+                mnum = re.match(r'^\d+\.\s*(.+)', ln)
+                if mnum:
+                    candidate_topics.append(mnum.group(1))
+            # si encontramos candidatos, transformarlos en objetos básicos
+            if candidate_topics:
+                json_blob = []
+                for name in candidate_topics[:num_temas]:
+                    json_blob.append({"name": name[:60], "explanation": "", "example": ""})
+
+        # Si ya tenemos una estructura parseada, acumular
+        if isinstance(json_blob, list):
+            for it in json_blob[:num_temas]:
+                name = (it.get("name") or it.get("topic") or "").strip()
+                if not name:
+                    continue
+                score = 0
+                try:
+                    score = int(it.get("score", 0) or 0)
+                except Exception:
+                    score = 0
+                # Si no hay score, contamos como 1 mención
+                topic_counts[name] = topic_counts.get(name, 0) + (score if score > 0 else 1)
+                # guardar ejemplo si todavía no existe
+                if name not in topic_examples and it.get("example"):
+                    topic_examples[name] = it.get("example")
+        else:
+            # No pudimos extraer estructura en este chunk; lo dejamos para debug
+            print(f"[IA] No se extrajo lista JSON del chunk {i+1}. Respuesta: {resp_text[:300]}...")
+
+    # Si no se encontraron temas en ningún chunk
+    if not topic_counts:
+        # guardar debug a disco opcionalmente o devolver un mensaje con info
+        print("[IA] No se encontraron temas en los chunks. Respuestas crudas (primeras 500 chars):")
+        for i, r in enumerate(debug_responses):
+            print(f"--- chunk {i+1} ---\n{r[:500]}\n")
         return "No se pudieron extraer temas generales."
+
+    # Ordenar y elegir top N
+    sorted_topics = sorted(topic_counts.items(), key=lambda kv: kv[1], reverse=True)[:num_temas]
+
+    # Construir salida formateada (como pedías originalmente)
+    out_lines = []
+    for idx, (name, score) in enumerate(sorted_topics, start=1):
+        explanation = topic_examples.get(name, "")  # no es ideal: usamos example como explicación si falta
+        example = topic_examples.get(name, "")
+        # si example vacío, intentamos buscar un tweet en los datos original que contenga el nombre
+        if not example:
+            try:
+                matched = next((t for t in tweets if name.lower().split()[0] in t.lower()), None)
+                if matched:
+                    example = matched
+            except Exception:
+                example = ""
+        out_lines.append(f"{idx}. {name}\n{explanation or '—'}\nEjemplo: \"{example}\"")
+
+    return "\n\n".join(out_lines)
+
 
 # === Preparación de datos del día (UTC) ===
 counts_cols = ["likeCount","quoteCount","retweetCount","replyCount","bookmarkCount"]
